@@ -2,8 +2,8 @@ name: Record heating oil price
 
 on:
   schedule:
-    # Daily at 13:17 UTC (8:17 AM EST / 9:17 AM EDT). Odd minute avoids peak-load delays.
-    - cron: "17 13 * * *"
+    # Every 2 hours at :17 past (UTC). Odd minute avoids peak-load delays.
+    - cron: "17 */2 * * *"
   workflow_dispatch: {}   # lets you run it manually from the Actions tab
 
 permissions:
