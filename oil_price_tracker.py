@@ -14,7 +14,8 @@ import re
 import ssl
 import sys
 import urllib.request
-from datetime import date
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 URL = "https://www.cashheatingoil.com/woodbridge_ct_oil_prices/06525"
@@ -55,11 +56,22 @@ def credit_card_prices(text: str):
     return prices, len(sections)
 
 
+def today() -> str:
+    # Use Eastern time so the date is right even when run on a UTC server.
+    return datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+
+
 def save(row: dict) -> None:
+    """Write today's row, keeping the lowest price seen across the day's runs."""
     rows = []
     if CSV_PATH.exists():
         with CSV_PATH.open(newline="") as f:
-            rows = [r for r in csv.DictReader(f) if r["date"] != row["date"]]
+            for r in csv.DictReader(f):
+                if r["date"] == row["date"]:
+                    if float(r["lowest_credit_card_price"]) < float(row["lowest_credit_card_price"]):
+                        row["lowest_credit_card_price"] = r["lowest_credit_card_price"]
+                else:
+                    rows.append(r)
     rows.append(row)
     with CSV_PATH.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=FIELDS)
@@ -81,10 +93,10 @@ def main() -> int:
         return 2
 
     low = min(prices)
-    save({"date": date.today().isoformat(),
+    save({"date": today(),
           "lowest_credit_card_price": f"{low:.2f}",
           "suppliers_listed": n})
-    print(f"{date.today()}: lowest credit card price ${low:.2f}/gal ({n} suppliers)")
+    print(f"{today()}: lowest credit card price ${low:.2f}/gal ({n} suppliers)")
     return 0
 
 
