@@ -1,0 +1,32 @@
+name: Record heating oil price
+
+on:
+  schedule:
+    # Daily at 13:17 UTC (8:17 AM EST / 9:17 AM EDT). Odd minute avoids peak-load delays.
+    - cron: "17 13 * * *"
+  workflow_dispatch: {}   # lets you run it manually from the Actions tab
+
+permissions:
+  contents: write         # needed to commit the CSV back to the repo
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run tracker
+        run: python oil_price_tracker.py
+
+      - name: Commit updated CSV
+        run: |
+          git config user.name "oil-price-bot"
+          git config user.email "oil-price-bot@users.noreply.github.com"
+          git add oil_prices.csv
+          git diff --cached --quiet || git commit -m "Record oil price $(date -u +%F)"
+          git push
