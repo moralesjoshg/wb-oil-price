@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write         # needed to commit the CSV back to the repo
 
+# Don't run at the same time as the weekly chart job (both push to the repo).
+concurrency:
+  group: repo-writes
+
 jobs:
   record:
     runs-on: ubuntu-latest

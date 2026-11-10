@@ -3,18 +3,15 @@
 
 Run on a schedule. Keeps one row per day in oil_prices.csv: date, lowest
 credit card price per gallon seen that day, and how many suppliers were
-listed. Emails an alert when the price drops below the previously recorded one.
+listed.
 
 Standard library only; needs Python 3.8+.
 """
 import csv
 import html
-import os
 import re
-import smtplib
 import ssl
 import sys
-from email.message import EmailMessage
 import urllib.request
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -63,97 +60,22 @@ def today() -> str:
     return datetime.now(ZoneInfo("America/New_York")).date().isoformat()
 
 
-def save(row: dict):
-    """Write today's row, keeping the lowest price seen across the day's runs.
-
-    Returns the previously recorded price (today's earlier value, else the
-    most recent earlier day), or None if the CSV had no data yet.
-    """
+def save(row: dict) -> None:
+    """Write today's row, keeping the lowest price seen across the day's runs."""
     rows = []
-    previous = None
     if CSV_PATH.exists():
         with CSV_PATH.open(newline="") as f:
             for r in csv.DictReader(f):
                 if r["date"] == row["date"]:
-                    previous = float(r["lowest_credit_card_price"])
                     if float(r["lowest_credit_card_price"]) < float(row["lowest_credit_card_price"]):
                         row["lowest_credit_card_price"] = r["lowest_credit_card_price"]
                 else:
                     rows.append(r)
-                    if previous is None or r["date"] < row["date"]:
-                        previous = float(r["lowest_credit_card_price"])
     rows.append(row)
     with CSV_PATH.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=FIELDS)
         w.writeheader()
         w.writerows(rows)
-    return previous
-
-
-def send_email(subject: str, text: str, html_body: str = None, images: dict = None) -> bool:
-    """Send an email via Gmail SMTP using EMAIL_USER, EMAIL_APP_PASSWORD, EMAIL_TO.
-
-    images maps a Content-ID to PNG bytes, referenced in html_body as
-    <img src="cid:NAME">. Returns False (without raising) if email isn't configured.
-    """
-    user = os.environ.get("EMAIL_USER")
-    password = os.environ.get("EMAIL_APP_PASSWORD")
-    to = os.environ.get("EMAIL_TO") or user
-    if not (user and password and to):
-        print("Email isn't configured (EMAIL_* variables unset); not sending.")
-        return False
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = user
-    msg["To"] = to
-    msg.set_content(text)
-    if html_body:
-        msg.add_alternative(html_body, subtype="html")
-        for cid, data in (images or {}).items():
-            msg.get_payload()[1].add_related(data, "image", "png", cid=f"<{cid}>")
-    _smtp_send(user, password, msg)
-    return True
-
-
-def _smtp_send(user: str, password: str, msg: EmailMessage) -> None:
-    """Send via Gmail, trying SSL on 465 then STARTTLS on 587, with one retry.
-
-    Gmail sometimes drops connections from cloud servers on one port, so each
-    method is attempted in turn. Raises the last error if all attempts fail.
-    """
-    import time
-    ctx = ssl.create_default_context()
-    last = None
-    for attempt in range(2):
-        for mode, port in (("ssl", 465), ("starttls", 587)):
-            try:
-                if mode == "ssl":
-                    smtp = smtplib.SMTP_SSL("smtp.gmail.com", port, timeout=30, context=ctx)
-                else:
-                    smtp = smtplib.SMTP("smtp.gmail.com", port, timeout=30)
-                with smtp:
-                    if mode == "starttls":
-                        smtp.ehlo()
-                        smtp.starttls(context=ctx)
-                        smtp.ehlo()
-                    smtp.login(user, password)
-                    smtp.send_message(msg)
-                return
-            except smtplib.SMTPAuthenticationError:
-                raise  # wrong credentials; retrying won't help
-            except (smtplib.SMTPException, OSError) as e:
-                last = e
-                print(f"SMTP {mode}:{port} failed ({type(e).__name__}: {e})", file=sys.stderr)
-        time.sleep(5)
-    raise last
-
-
-def send_alert(old: float, new: float) -> None:
-    send_email(
-        f"Heating oil price drop: ${new:.2f}/gal",
-        f"Lowest credit card price in Woodbridge, CT (06525) fell from "
-        f"${old:.2f} to ${new:.2f} per gallon.\n\n{URL}\n",
-    )
 
 
 def main() -> int:
@@ -170,18 +92,10 @@ def main() -> int:
         return 2
 
     low = min(prices)
-    previous = save({"date": today(),
-                     "lowest_credit_card_price": f"{low:.2f}",
-                     "suppliers_listed": n})
+    save({"date": today(),
+          "lowest_credit_card_price": f"{low:.2f}",
+          "suppliers_listed": n})
     print(f"{today()}: lowest credit card price ${low:.2f}/gal ({n} suppliers)")
-
-    if previous is not None and low < previous:
-        try:
-            send_alert(previous, low)
-            print(f"Alert sent: ${previous:.2f} -> ${low:.2f}")
-        except Exception as e:
-            print(f"Email failed: {e}", file=sys.stderr)
-            return 3  # non-zero so the Action shows as failed (CSV is still saved)
     return 0
 
 

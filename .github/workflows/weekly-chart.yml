@@ -1,0 +1,39 @@
+name: Weekly price chart
+
+on:
+  schedule:
+    # Sundays at 23:07 UTC (6:07 PM EST / 7:07 PM EDT).
+    - cron: "7 23 * * 0"
+  workflow_dispatch: {}   # lets you generate one now from the Actions tab
+
+permissions:
+  contents: write         # needed to commit the chart back to the repo
+
+# Don't run at the same time as the price-check job (both push to the repo).
+concurrency:
+  group: repo-writes
+
+jobs:
+  chart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install matplotlib
+        run: pip install matplotlib
+
+      - name: Generate chart
+        run: python weekly_chart.py
+
+      - name: Commit chart
+        run: |
+          git config user.name "oil-price-bot"
+          git config user.email "oil-price-bot@users.noreply.github.com"
+          git add price_history.png
+          git diff --cached --quiet || git commit -m "Update price chart $(date -u +%F)"
+          git push
