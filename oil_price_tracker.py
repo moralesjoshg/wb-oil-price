@@ -111,11 +111,41 @@ def send_email(subject: str, text: str, html_body: str = None, images: dict = No
         msg.add_alternative(html_body, subtype="html")
         for cid, data in (images or {}).items():
             msg.get_payload()[1].add_related(data, "image", "png", cid=f"<{cid}>")
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465,
-                          context=ssl.create_default_context()) as smtp:
-        smtp.login(user, password)
-        smtp.send_message(msg)
+    _smtp_send(user, password, msg)
     return True
+
+
+def _smtp_send(user: str, password: str, msg: EmailMessage) -> None:
+    """Send via Gmail, trying SSL on 465 then STARTTLS on 587, with one retry.
+
+    Gmail sometimes drops connections from cloud servers on one port, so each
+    method is attempted in turn. Raises the last error if all attempts fail.
+    """
+    import time
+    ctx = ssl.create_default_context()
+    last = None
+    for attempt in range(2):
+        for mode, port in (("ssl", 465), ("starttls", 587)):
+            try:
+                if mode == "ssl":
+                    smtp = smtplib.SMTP_SSL("smtp.gmail.com", port, timeout=30, context=ctx)
+                else:
+                    smtp = smtplib.SMTP("smtp.gmail.com", port, timeout=30)
+                with smtp:
+                    if mode == "starttls":
+                        smtp.ehlo()
+                        smtp.starttls(context=ctx)
+                        smtp.ehlo()
+                    smtp.login(user, password)
+                    smtp.send_message(msg)
+                return
+            except smtplib.SMTPAuthenticationError:
+                raise  # wrong credentials; retrying won't help
+            except (smtplib.SMTPException, OSError) as e:
+                last = e
+                print(f"SMTP {mode}:{port} failed ({type(e).__name__}: {e})", file=sys.stderr)
+        time.sleep(5)
+    raise last
 
 
 def send_alert(old: float, new: float) -> None:
